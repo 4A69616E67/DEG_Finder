@@ -116,7 +116,7 @@ opt$Treat="mitf_ko6_NN_DS,mitf_ko6_NN_VS,mitf_PN_DS,mitf_ko6_NN_DS,mitf_ko6_NN_E
 opt$group="f:/Project/RRS-RNA/透明Xenopu-Bulk RNAsequencing/scripts/sample_name.txt"
 # opt$TPM=F
 # opt$GenesLen="f:/Project/Xenopus/XENTR_10.0_geneLen.txt"
-opt$specise="xtr"
+opt$specise="hg"
 opt$GO=T
 #-------------------------------------------
 if (is.null(opt$input) || is.null(opt$Control)) {
@@ -194,6 +194,7 @@ if (!is.null(opt$species)) {
     # data_base<-AnnotationHub()[["AH76241"]]
     entrez_id <- mapIds(x = data_base, keys = rownames(CountData), keytype = "SYMBOL", column = "ENTREZID")
   } else if (opt$species == "hg") {
+    species <- opt$species
     library(org.Hs.eg.db)
     data_base <- org.Hs.eg.db
     gene_id_trans_table <- read.table("f:/Project/Xenopus/gene_id_trans_table.txt", sep = "\t", header = T, quote = "")
@@ -285,6 +286,3 @@ write.xlsx(res_xlsx_list, file = paste(OutDir, "/", OutPrefix, ".res.xlsx", sep 
 write.table(foldChangeList, file = paste(OutDir, "/", OutPrefix, ".foldchange.tsv", sep = ""), quote = F, sep = "\t")
 dev.off()
 quit()
-
-plot_data <- data.frame(res)
-ggplot()

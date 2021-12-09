@@ -1,2 +1,8 @@
 Xenopus_laevis.db
 Xenopus_tropicalis.db
+.Rproj.user
+test/DE_Analysis.res.xlsx
+test/DE_Analysis.plot.pdf
+test/DE_Analysis.nor.tsv
+test/DE_Analysis.foldchange.tsv
+test/DE_Analysis.changed_gene.tsv
