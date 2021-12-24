@@ -32,6 +32,7 @@ PreProcess <- function(data, group) {
     cat("Empty group, use file header as sample name\n")
     group <- data.frame(sample = colnames(data), condition = gsub(x = colnames(data), pattern = "_[^_]*$", replacement = "", perl = T))
   }
+  group$condition <- factor(group$condition)
   # 判断sample名是否一致
   if (!all(group[["sample"]] %in% names(data))) {
     # 不一致，退出
