@@ -62,6 +62,7 @@ Species <- opt$Species  #物种名 xtr xla hsa
 max_pvalue <- opt$MaxP # 最大p值
 min_log2_fold_change <- opt$MinLog2FC # 最小倍数差异
 SignIndicator <- "pvalue" #使用p值做差异分析
+html_lib_dir <- paste(OutDir,"/html/lib",sep = "")
 # factor的存储方式为，所有非重复的值存在level中，而factor中存的是level的索引。所以factor直接转character时可能会转换成对应的索引值，而不是字符串
 RawData <- read.table(file = InFile, header = F, sep = "\t", colClasses = "character") # 默认情况下每一列都会是factor，这里不用factor
 names(RawData) <- RawData[1, ] # 不直接读header，防止R改名
@@ -92,8 +93,12 @@ dds <- DESeqDataSetFromMatrix(CountData, colData = Group, design = ~condition) #
 dds <- DESeq(dds)
 write.table(assay(normTransform(dds)), file = paste(OutDir, "/", OutPrefix, ".nor.tsv", sep = ""), quote = F, sep = "\t") # 打印标准化后的序列
 # PCA分析
-pcaData <- plotPCA(vst(dds, blind = F), intgroup = "condition")
+pcaData <- plotPCA(vst(dds, blind = F), intgroup = "condition") + theme_bw()
 pcaData
+fig <- plot_ly(data = pcaData$data, x= ~PC1, y= ~PC2, color = ~condition, type = "scatter", mode = "markers", size = 2) %>%
+  plotly::layout(title = "PCA", xaxis = list(zeroline = FALSE), yaxis = list(zeroline = FALSE))
+htmlwidgets::saveWidget(as_widget(fig), file = paste(OutDir, "/html/", OutPrefix, ".pca.html", sep = ""), selfcontained = T, libdir = html_lib_dir)
+
 write.table(pcaData$data, file = paste(OutDir, "/", OutPrefix, ".pca.tsv", sep = ""), quote = F, sep = "\t", row.names = F) # 打印PCA的结果
 # 识别或加载对照组和处理组的名字
 Control <- strsplit(x = opt$Control, split = ",", fixed = T)[[1]]
@@ -102,6 +107,7 @@ if (!is.null(opt$Treat)) {
   TreatList <- strsplit(x = opt$Treat, split = ",", fixed = T)[[1]]
 }
 
+#########################
 #------------------------------------------------------------加载数据库-----------------------------------------------------------------------------------------
 # 判断物种并加载数据库
 data_base <- NULL
@@ -117,9 +123,14 @@ if (Species == "xla") {
 } else if (Species == "hsa") {
   library(org.Hs.eg.db)
   data_base <- org.Hs.eg.db
+  # entrez_id <- mapIds(x = data_base, keys = rownames(CountData), keytype = "SYMBOL", column = "ENTREZID") #不成功
   gene_id_trans_table <- read.table("f:/Project/Xenopus/gene_id_trans_table.txt", sep = "\t", header = T, quote = "")
   entrez_id <- as.character(gene_id_trans_table$Human_Entrez_ID[match(rownames(CountData), gene_id_trans_table$XB_GENEPAGE_NAME)]) ## 转换成人的Entrez id
-} else{
+} else if(Species == "dre"){
+  library(org.Dr.eg.db)
+  data_base <- org.Dr.eg.db
+  entrez_id <- mapIds(x = data_base, keys = rownames(CountData), keytype = "SYMBOL", column = "ENTREZID")
+}else{
   Species=NULL
 }
 # 加载GO和KEGG分析需要的包
@@ -151,10 +162,23 @@ for (i in 1:length(TreatList)) {
   res_dataframe$significant[up_gene_index] <- "up"
   down_gene_index <- which(res[[SignIndicator]] < max_pvalue & res$log2FoldChange < -min_log2_fold_change)
   res_dataframe$significant[down_gene_index] <- "down"
-  print(ggplot(data = res_dataframe) + theme_classic() + geom_point(mapping = aes(x = log2(baseMean), y = log2FoldChange, colour = significant)) +
-          ggtitle(title_name) + theme(plot.title = element_text(hjust = 0.5))) # 绘制MA图
-  print(ggplot(data = res_dataframe) + theme_classic() + geom_point(mapping = aes(x = log2FoldChange, y = -log10(pvalue), colour = significant)) +
-          ggtitle(title_name) + theme(plot.title = element_text(hjust = 0.5))) # 绘制火山图 
+  
+  fig <- ggplot(data = res_dataframe) + theme_classic() + geom_point(mapping = aes(x = log2(baseMean), y = log2FoldChange, colour = significant, text= genes)) +
+    ggtitle(title_name) + theme(plot.title = element_text(hjust = 0.5), plot.margin = unit(rep(2,4),'lines')) # 绘制MA图
+  print(fig)
+  fig <- ggplotly(fig, dynamicTicks=T)
+  # fig <- plot_ly(data = res_dataframe, x= ~log2(baseMean), y= ~log2FoldChange, color = ~significant, colors = c("#F8766D","#00BA38","#619CFF"), type = "scatter", mode = "markers") %>%
+  #   add_trace(text= ~genes) %>% layout(title = title_name)
+  htmlwidgets::saveWidget(as_widget(fig),file =  paste(OutDir, "/html/", OutPrefix, ".", title_name, ".MA.html", sep = ""),libdir = html_lib_dir)
+  
+  fig <- ggplot(data = res_dataframe) + theme_classic() + geom_point(mapping = aes(x = log2FoldChange, y = -log10(pvalue), colour = significant, text= genes)) +
+    ggtitle(title_name) + theme(plot.title = element_text(hjust = 0.5), plot.margin = unit(rep(2,4),'lines')) # 绘制火山图 
+  print(fig)
+  fig <- ggplotly(fig, dynamicTicks=T)
+  # fig <- plot_ly(data = res_dataframe, x= ~log2FoldChange, y= ~-log10(pvalue), color = ~significant, colors = c("#F8766D","#00BA38","#619CFF"), text = ~genes, type = "scatter", mode = "markers") %>%
+  #   layout(title = title_name)
+  htmlwidgets::saveWidget(as_widget(fig),file =  paste(OutDir, "/html/", OutPrefix, ".", title_name, ".volcano.html", sep = ""),libdir = html_lib_dir)
+  
   res_xlsx_list[[paste(aSample, aControl, sep = "-")]] <- res_dataframe
   Changed_gene_list[[title_name]] <- data.frame(gene = c(rownames(res)[up_gene_index], rownames(res)[down_gene_index]), count = c(rep(1, length(up_gene_index)), rep(-1, length(down_gene_index))))
   names(Changed_gene_list[[title_name]]) <- c("gene", title_name)
@@ -214,4 +238,8 @@ quit()
 # go_result <- process.go(entrez_id = na.omit(changed_entrez_id[Changed_gene[[2]]==1 & Changed_gene[[3]]==0 & Changed_gene[[4]]==1]), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = na.omit(changed_entrez_id))
 # print(dotplot(go_result$ALL, title = "1,0,0", showCategory = 30))
 
-
+p <- ggplot(data=lattice::singer,aes(x=height,fill=voice.part))+
+  geom_density()+
+  facet_grid(voice.part~.)
+gg <- ggplotly(p)
+gg
