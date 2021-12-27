@@ -19,19 +19,21 @@ parameter <- matrix(c(
 byrow = T, ncol = 5
 )
 ##默认参数
-# default_value <- list(Input=NULL, OutDir="./", Prefix="DES_OUT", Control=NULL, Treat=NULL, Group=NULL, GeneLens=NULL, Species="xtr", GO=F, KEGG=F, TPM=F, MaxP=0.01, MinLog2FC=1) #默认参数值
+default_value <- list(Input=NULL, OutDir="./", Prefix="DES_OUT", Control=NULL, Treat=NULL, Group=NULL, GeneLens=NULL, Species="xtr", GO=F, KEGG=F, TPM=F, MaxP=0.01, MinLog2FC=1) #默认参数值
 ##测试参数
-default_value <- list(Input="f:/Project/LGH/Heart-RNA/data/xt_featureCount.matrix",
-                      OutDir="f:/Project/LGH/Heart-RNA/result/",
-                      Prefix="DES_OUT",
-                      Control="xt_wt",
-                      Treat=NULL,
-                      Group="f:/Project/LGH/Heart-RNA/script/sample.info.txt",
-                      GeneLens="f:/Project/Xenopus/XENTR_10.0_geneLen.txt",
-                      Species="xtr", GO=T, KEGG=F, TPM=T, MaxP=0.01, MinLog2FC=1) #测试参数
+# default_value <- list(Input="f:/Project/LGH/Heart-RNA/data/xt_featureCount.matrix",
+#                       OutDir="f:/Project/LGH/Heart-RNA/result/",
+#                       Prefix="DES_OUT",
+#                       Control="xt_wt",
+#                       Treat=NULL,
+#                       Group="f:/Project/LGH/Heart-RNA/script/sample.info.txt",
+#                       GeneLens="f:/Project/Xenopus/XENTR_10.0_geneLen.txt",
+#                       Species="xtr", ## xtr xla hsa dre 
+#                       GO=T, KEGG=F, TPM=T, MaxP=0.01, MinLog2FC=1) #测试参数
 ## options----------------------------------------------------------------------------------------------------------------------------------------------------
 # 从命令行接收参数
 opt <- getopt(spec = parameter)
+# opt$Config <- "f:/Project/RRS-RNA/透明Xenopu-Bulk RNAsequencing/scripts/config.txt"
 ###读取配置文件的信息
 if(!is.null(opt$Config)){
   if (file.exists(opt$Config)) {
@@ -87,7 +89,7 @@ if (opt$TPM && !is.null(GeneLen)) {
   TPMData <- CalculateTPM(data = CountData, geneLen = GeneLen)
 }
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------
-# pdf(paste(OutDir, "/", OutPrefix, ".plot.pdf", sep = ""), height = 10, width = 16) # 暂时注释
+pdf(paste(OutDir, "/", OutPrefix, ".plot.pdf", sep = ""), height = 10, width = 16) # 暂时注释
 pheatmap(cor(CountData,method = "pearson"), display_numbers = T, show_colnames = F)
 dds <- DESeqDataSetFromMatrix(CountData, colData = Group, design = ~condition) # 由于data的列必须与group的行相同，所以得去掉group中没有的样本
 dds <- DESeq(dds)
@@ -112,6 +114,7 @@ if (!is.null(opt$Treat)) {
 # 判断物种并加载数据库
 data_base <- NULL
 library("AnnotationHub", quietly = T, warn.conflicts = F)
+gene_id_trans_table <- read.table("f:/Project/Xenopus/gene_id_trans_table_three_species.txt", sep = "\t", header = T, quote = "")
 if (Species == "xla") {
   data_base <- AnnotationDbi::loadDb("Xenopus_laevis.db")
   # data_base<-AnnotationHub()[["AH75748"]]
@@ -124,12 +127,11 @@ if (Species == "xla") {
   library(org.Hs.eg.db)
   data_base <- org.Hs.eg.db
   # entrez_id <- mapIds(x = data_base, keys = rownames(CountData), keytype = "SYMBOL", column = "ENTREZID") #不成功
-  gene_id_trans_table <- read.table("f:/Project/Xenopus/gene_id_trans_table.txt", sep = "\t", header = T, quote = "")
   entrez_id <- as.character(gene_id_trans_table$Human_Entrez_ID[match(rownames(CountData), gene_id_trans_table$XB_GENEPAGE_NAME)]) ## 转换成人的Entrez id
 } else if(Species == "dre"){
   library(org.Dr.eg.db)
   data_base <- org.Dr.eg.db
-  entrez_id <- mapIds(x = data_base, keys = rownames(CountData), keytype = "SYMBOL", column = "ENTREZID")
+  entrez_id <- as.character(gene_id_trans_table$Zebrafish_Entrez_ID[match(rownames(CountData), gene_id_trans_table$XB_GENEPAGE_NAME)]) ## 转换成斑马鱼的Entrez id
 }else{
   Species=NULL
 }
@@ -187,29 +189,28 @@ for (i in 1:length(TreatList)) {
     pheatmap(assay(normTransform(dds))[gene_index, which(Group$condition %in% c(aSample, aControl))], cluster_rows = T, show_rownames = F, cluster_cols = T, annotation_col = Group, fontsize = 6, main = paste(sep = "-", aSample, aControl))
     if (!is.null(data_base) && !is.null(opt$GO) && opt$GO) {
       cat("process GO enrich:\t", aSample, "\t")
-      go_result <- process.go(entrez_id = na.omit(entrez_id[up_gene_index]), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = na.omit(entrez_id))
+      go_result <- process.go(entrez_id = unique(na.omit(entrez_id[up_gene_index])), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = unique(na.omit(entrez_id)))
       go_term_list[[paste(title_name,"_Up",sep = "")]] <- go_result$ALL
-      if (!is.null(go_result$ALL)) {
+      if (!is.null(go_result$ALL) && dim(go_result$ALL@result)[1] > 0) {
         print(dotplot(go_result$ALL, title = paste(aSample, " vs ", aControl, " Up genes\tGO term", sep = ""), showCategory = 30))
-        
       }
-      go_result <- process.go(entrez_id = na.omit(entrez_id[down_gene_index]), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = na.omit(entrez_id))
+      go_result <- process.go(entrez_id = unique(na.omit(entrez_id[down_gene_index])), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = unique(na.omit(entrez_id)))
       go_term_list[[paste(title_name,"_Down",sep = "")]] <- go_result$ALL
-      if (!is.null(go_result$ALL)) {
+      if (!is.null(go_result$ALL) && dim(go_result$ALL@result)[1] > 0) {
         print(dotplot(go_result$ALL, title = paste(aSample, " vs ", aControl, " Down genes\tGO term", sep = ""), showCategory = 30))
       }
     }
     if (!is.null(opt$KEGG) && !is.null(Species) && opt$KEGG) {
       cat("process KEGG enrich:\t", aSample)
       if (length(na.omit(entrez_id[up_gene_index])) > 0) {
-        kegg_term <- enrichKEGG(gene = na.omit(entrez_id[up_gene_index]), organism = Species, qvalueCutoff = 0.05, universe = na.omit(entrez_id))
-        if (!is.null(kegg_term)) {
+        kegg_term <- enrichKEGG(gene = unique(na.omit(entrez_id[up_gene_index])), organism = Species, qvalueCutoff = 0.05, universe = unique(na.omit(entrez_id)))
+        if (!is.null(kegg_term) && dim(kegg_term)[1] > 0) {
           print(dotplot(kegg_term, title = paste(aSample, " vs ", aControl, " Up genes\tKEGG term", sep = ""), showCategory = 30))
         }
       }
       if (length(na.omit(entrez_id[down_gene_index])) > 0) {
-        kegg_term <- enrichKEGG(gene = na.omit(entrez_id[down_gene_index]), organism = Species, qvalueCutoff = 0.05, universe = na.omit(entrez_id))
-        if (!is.null(kegg_term)) {
+        kegg_term <- enrichKEGG(gene = unique(na.omit(entrez_id[down_gene_index])), organism = Species, qvalueCutoff = 0.05, universe = unique(na.omit(entrez_id)))
+        if (!is.null(kegg_term) && dim(kegg_term)[1] > 0) {
           print(dotplot(kegg_term, title = paste(aSample, " vs ", aControl, " Down genes\tKEGG term", sep = ""), showCategory = 30))
         }
       }
@@ -233,13 +234,18 @@ if (opt$GO) {
 dev.off()
 quit()
 
-# changed_name <- Changed_gene$gene
-# changed_entrez_id <- as.character(gene_id_trans_table$Human_Entrez_ID[match(changed_name, gene_id_trans_table$XB_GENEPAGE_NAME)])
-# go_result <- process.go(entrez_id = na.omit(changed_entrez_id[Changed_gene[[2]]==1 & Changed_gene[[3]]==0 & Changed_gene[[4]]==1]), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = na.omit(changed_entrez_id))
-# print(dotplot(go_result$ALL, title = "1,0,0", showCategory = 30))
+# gene_id_trans_table <- read.table("f:/Project/Xenopus/gene_id_trans_table.txt", sep = "\t", header = T, quote = "")
+# ZebraFish_table <- read.table("f:/Project/Xenopus/XenbaseGeneZebrafishOrthologMapping_chd.txt", sep = "\t", header = T, quote = "")
+# names(ZebraFish_table) <- c("Zebrafish_Entrez_ID","XB_GENEPAGE_ID","XB_GENEPAGE_NAME","GENE_Desc")
+# Mouse_table <- read.table("f:/Project/Xenopus/XenbaseGeneMouseOrthologMapping_chd.txt", sep = "\t", header = T, quote = "")
+# names(Mouse_table) <- c("Mouse_Entrez_ID","XB_GENEPAGE_ID","XB_GENEPAGE_NAME","GENE_Desc")
+# test<-merge(ZebraFish_table[c(1,2)],gene_id_trans_table,by="XB_GENEPAGE_ID",all=T)
+# test <- merge(Mouse_table[c(1,2)],test,by="XB_GENEPAGE_ID",all=T)
+# test <- test[,c(1,4,5,6,7,2,3,8)]
+# write.table(test,file = "f:/Project/Xenopus/gene_id_trans_table_three_species.txt",quote = F,row.names = F,sep = "\t")
 
-p <- ggplot(data=lattice::singer,aes(x=height,fill=voice.part))+
-  geom_density()+
-  facet_grid(voice.part~.)
-gg <- ggplotly(p)
-gg
+# p <- ggplot(data=lattice::singer,aes(x=height,fill=voice.part))+
+#   geom_density()+
+#   facet_grid(voice.part~.)
+# gg <- ggplotly(p)
+# gg
