@@ -1,5 +1,6 @@
 library("getopt", quietly = TRUE, warn.conflicts = F)
-library("plotly", quietly = TRUE, warn.conflicts = F)
+# library("plotly", quietly = TRUE, warn.conflicts = F)
+# library("tidyr", quietly = TRUE, warn.conflicts = F)
 source("Utils.R")
 
 ##==========================================================================================================================================================
@@ -33,7 +34,7 @@ default_value <- list(Input=NULL, OutDir="./", Prefix="DES_OUT", Control=NULL, T
 ## options----------------------------------------------------------------------------------------------------------------------------------------------------
 # 从命令行接收参数
 opt <- getopt(spec = parameter)
-# opt$Config <- "f:/Project/RRS-RNA/透明Xenopu-Bulk RNAsequencing/scripts/config.txt"
+# opt$Config <- "f:/Project/SZY/hybridize/RNA/scripts/config.txt"
 ###读取配置文件的信息
 if(!is.null(opt$Config)){
   if (file.exists(opt$Config)) {
@@ -78,6 +79,7 @@ Pre <- PreProcess(data = RawData, group = Group) # 数据预处理
 Group <- Pre$group
 GeneLen <- Pre$gene_length
 CountData <- Pre$data
+gene_names <- rownames(CountData)
 #-------------------判断是否使用TPM值---------------------------------------------------------------------------------------------------------------------------
 # 读取基因长度
 if (!is.null(opt$GeneLens) && file.exists(opt$GeneLens)) {
@@ -85,21 +87,34 @@ if (!is.null(opt$GeneLens) && file.exists(opt$GeneLens)) {
   row.names(GeneLen) <- GeneLen[[1]]
   names(GeneLen) <- c("Gene", "Length")
 }
+TPMData=NULL
 if (opt$TPM && !is.null(GeneLen)) {
   TPMData <- CalculateTPM(data = CountData, geneLen = GeneLen)
 }
+####读取相关基因名
+if(!is.null(opt$Include) && file.exists(opt$Include)){
+  relate_genes <- read.table(opt$Include,header = F)
+}else{
+  relate_genes <- gene_names
+}
+relate_index <- na.omit(match(relate_genes[[1]],gene_names)) ##获取相关基因的索引值
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------
 pdf(paste(OutDir, "/", OutPrefix, ".plot.pdf", sep = ""), height = 10, width = 16) # 暂时注释
-pheatmap(cor(CountData,method = "pearson"), display_numbers = T, show_colnames = F)
+#绘制TPM分布
+# cat("test out 1\n")
+if(!is.null(TPMData)){
+  ggplot(gather(TPMData, key = sample, value = exp),aes(y = log2(exp), x = sample)) + geom_violin(trim = T) + geom_boxplot(width=0.1)
+}
+pheatmap(cor(CountData[,-(47:64)],method = "pearson"), display_numbers = F, show_colnames = F,clustering_method = "single")
 dds <- DESeqDataSetFromMatrix(CountData, colData = Group, design = ~condition) # 由于data的列必须与group的行相同，所以得去掉group中没有的样本
 dds <- DESeq(dds)
 write.table(assay(normTransform(dds)), file = paste(OutDir, "/", OutPrefix, ".nor.tsv", sep = ""), quote = F, sep = "\t") # 打印标准化后的序列
 # PCA分析
 pcaData <- plotPCA(vst(dds, blind = F), intgroup = "condition") + theme_bw()
 pcaData
-fig <- plot_ly(data = pcaData$data, x= ~PC1, y= ~PC2, color = ~condition, type = "scatter", mode = "markers", size = 2) %>%
-  plotly::layout(title = "PCA", xaxis = list(zeroline = FALSE), yaxis = list(zeroline = FALSE))
-htmlwidgets::saveWidget(as_widget(fig), file = paste(OutDir, "/html/", OutPrefix, ".pca.html", sep = ""), selfcontained = T, libdir = html_lib_dir)
+# fig <- plot_ly(data = pcaData$data, x= ~PC1, y= ~PC2, color = ~condition, type = "scatter", mode = "markers", size = 2) %>%
+#   plotly::layout(title = "PCA", xaxis = list(zeroline = FALSE), yaxis = list(zeroline = FALSE))
+# htmlwidgets::saveWidget(as_widget(fig), file = paste(OutDir, "/html/", OutPrefix, ".pca.html", sep = ""), selfcontained = T, libdir = html_lib_dir)
 
 write.table(pcaData$data, file = paste(OutDir, "/", OutPrefix, ".pca.tsv", sep = ""), quote = F, sep = "\t", row.names = F) # 打印PCA的结果
 # 识别或加载对照组和处理组的名字
@@ -159,27 +174,23 @@ for (i in 1:length(TreatList)) {
   res <- results(dds, contrast = c("condition", aSample, aControl)) # 获取差异表达结果
   res_dataframe <- cbind(data.frame(genes = rownames(res)), as.data.frame(res), significant = res$log2FoldChange)
   res_dataframe$significant <- factor("normal", levels = c("up", "normal", "down")) # 添加是否是差异基因
-  gene_index <- which(res[[SignIndicator]] < max_pvalue & abs(res$log2FoldChange) > min_log2_fold_change)
-  up_gene_index <- which(res[[SignIndicator]] < max_pvalue & res$log2FoldChange > min_log2_fold_change)
+  gene_index <- intersect(which(res[[SignIndicator]] < max_pvalue & abs(res$log2FoldChange) > min_log2_fold_change), relate_index)
+  up_gene_index <- intersect(which(res[[SignIndicator]] < max_pvalue & res$log2FoldChange > min_log2_fold_change), relate_index)
+  down_gene_index <- intersect(which(res[[SignIndicator]] < max_pvalue & res$log2FoldChange < -min_log2_fold_change), relate_index)
   res_dataframe$significant[up_gene_index] <- "up"
-  down_gene_index <- which(res[[SignIndicator]] < max_pvalue & res$log2FoldChange < -min_log2_fold_change)
   res_dataframe$significant[down_gene_index] <- "down"
   
   fig <- ggplot(data = res_dataframe) + theme_classic() + geom_point(mapping = aes(x = log2(baseMean), y = log2FoldChange, colour = significant, text= genes)) +
     ggtitle(title_name) + theme(plot.title = element_text(hjust = 0.5), plot.margin = unit(rep(2,4),'lines')) # 绘制MA图
   print(fig)
-  fig <- ggplotly(fig, dynamicTicks=T)
-  # fig <- plot_ly(data = res_dataframe, x= ~log2(baseMean), y= ~log2FoldChange, color = ~significant, colors = c("#F8766D","#00BA38","#619CFF"), type = "scatter", mode = "markers") %>%
-  #   add_trace(text= ~genes) %>% layout(title = title_name)
-  htmlwidgets::saveWidget(as_widget(fig),file =  paste(OutDir, "/html/", OutPrefix, ".", title_name, ".MA.html", sep = ""),libdir = html_lib_dir)
+  # fig <- ggplotly(fig, dynamicTicks=T)
+  # htmlwidgets::saveWidget(as_widget(fig),file =  paste(OutDir, "/html/", OutPrefix, ".", title_name, ".MA.html", sep = ""),libdir = html_lib_dir)
   
   fig <- ggplot(data = res_dataframe) + theme_classic() + geom_point(mapping = aes(x = log2FoldChange, y = -log10(pvalue), colour = significant, text= genes)) +
     ggtitle(title_name) + theme(plot.title = element_text(hjust = 0.5), plot.margin = unit(rep(2,4),'lines')) # 绘制火山图 
   print(fig)
-  fig <- ggplotly(fig, dynamicTicks=T)
-  # fig <- plot_ly(data = res_dataframe, x= ~log2FoldChange, y= ~-log10(pvalue), color = ~significant, colors = c("#F8766D","#00BA38","#619CFF"), text = ~genes, type = "scatter", mode = "markers") %>%
-  #   layout(title = title_name)
-  htmlwidgets::saveWidget(as_widget(fig),file =  paste(OutDir, "/html/", OutPrefix, ".", title_name, ".volcano.html", sep = ""),libdir = html_lib_dir)
+  # fig <- ggplotly(fig, dynamicTicks=T)
+  # htmlwidgets::saveWidget(as_widget(fig),file =  paste(OutDir, "/html/", OutPrefix, ".", title_name, ".volcano.html", sep = ""),libdir = html_lib_dir)
   
   res_xlsx_list[[paste(aSample, aControl, sep = "-")]] <- res_dataframe
   Changed_gene_list[[title_name]] <- data.frame(gene = c(rownames(res)[up_gene_index], rownames(res)[down_gene_index]), count = c(rep(1, length(up_gene_index)), rep(-1, length(down_gene_index))))
@@ -189,12 +200,12 @@ for (i in 1:length(TreatList)) {
     pheatmap(assay(normTransform(dds))[gene_index, which(Group$condition %in% c(aSample, aControl))], cluster_rows = T, show_rownames = F, cluster_cols = T, annotation_col = Group, fontsize = 6, main = paste(sep = "-", aSample, aControl))
     if (!is.null(data_base) && !is.null(opt$GO) && opt$GO) {
       cat("process GO enrich:\t", aSample, "\t")
-      go_result <- process.go(entrez_id = unique(na.omit(entrez_id[up_gene_index])), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = unique(na.omit(entrez_id)))
+      go_result <- process.go(entrez_id = (na.omit(entrez_id[up_gene_index])), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = (na.omit(entrez_id)))
       go_term_list[[paste(title_name,"_Up",sep = "")]] <- go_result$ALL
       if (!is.null(go_result$ALL) && dim(go_result$ALL@result)[1] > 0) {
         print(dotplot(go_result$ALL, title = paste(aSample, " vs ", aControl, " Up genes\tGO term", sep = ""), showCategory = 30))
       }
-      go_result <- process.go(entrez_id = unique(na.omit(entrez_id[down_gene_index])), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = unique(na.omit(entrez_id)))
+      go_result <- process.go(entrez_id = (na.omit(entrez_id[down_gene_index])), data_base = data_base, pvalue = 0.05, qvalue = 0.05, universe = (na.omit(entrez_id)))
       go_term_list[[paste(title_name,"_Down",sep = "")]] <- go_result$ALL
       if (!is.null(go_result$ALL) && dim(go_result$ALL@result)[1] > 0) {
         print(dotplot(go_result$ALL, title = paste(aSample, " vs ", aControl, " Down genes\tGO term", sep = ""), showCategory = 30))
@@ -203,13 +214,13 @@ for (i in 1:length(TreatList)) {
     if (!is.null(opt$KEGG) && !is.null(Species) && opt$KEGG) {
       cat("process KEGG enrich:\t", aSample)
       if (length(na.omit(entrez_id[up_gene_index])) > 0) {
-        kegg_term <- enrichKEGG(gene = unique(na.omit(entrez_id[up_gene_index])), organism = Species, qvalueCutoff = 0.05, universe = unique(na.omit(entrez_id)))
+        kegg_term <- enrichKEGG(gene = (na.omit(entrez_id[up_gene_index])), organism = Species, qvalueCutoff = 0.05, universe = (na.omit(entrez_id)))
         if (!is.null(kegg_term) && dim(kegg_term)[1] > 0) {
           print(dotplot(kegg_term, title = paste(aSample, " vs ", aControl, " Up genes\tKEGG term", sep = ""), showCategory = 30))
         }
       }
       if (length(na.omit(entrez_id[down_gene_index])) > 0) {
-        kegg_term <- enrichKEGG(gene = unique(na.omit(entrez_id[down_gene_index])), organism = Species, qvalueCutoff = 0.05, universe = unique(na.omit(entrez_id)))
+        kegg_term <- enrichKEGG(gene = (na.omit(entrez_id[down_gene_index])), organism = Species, qvalueCutoff = 0.05, universe = (na.omit(entrez_id)))
         if (!is.null(kegg_term) && dim(kegg_term)[1] > 0) {
           print(dotplot(kegg_term, title = paste(aSample, " vs ", aControl, " Down genes\tKEGG term", sep = ""), showCategory = 30))
         }
@@ -234,18 +245,13 @@ if (opt$GO) {
 dev.off()
 quit()
 
-# gene_id_trans_table <- read.table("f:/Project/Xenopus/gene_id_trans_table.txt", sep = "\t", header = T, quote = "")
-# ZebraFish_table <- read.table("f:/Project/Xenopus/XenbaseGeneZebrafishOrthologMapping_chd.txt", sep = "\t", header = T, quote = "")
-# names(ZebraFish_table) <- c("Zebrafish_Entrez_ID","XB_GENEPAGE_ID","XB_GENEPAGE_NAME","GENE_Desc")
-# Mouse_table <- read.table("f:/Project/Xenopus/XenbaseGeneMouseOrthologMapping_chd.txt", sep = "\t", header = T, quote = "")
-# names(Mouse_table) <- c("Mouse_Entrez_ID","XB_GENEPAGE_ID","XB_GENEPAGE_NAME","GENE_Desc")
-# test<-merge(ZebraFish_table[c(1,2)],gene_id_trans_table,by="XB_GENEPAGE_ID",all=T)
-# test <- merge(Mouse_table[c(1,2)],test,by="XB_GENEPAGE_ID",all=T)
-# test <- test[,c(1,4,5,6,7,2,3,8)]
-# write.table(test,file = "f:/Project/Xenopus/gene_id_trans_table_three_species.txt",quote = F,row.names = F,sep = "\t")
-
-# p <- ggplot(data=lattice::singer,aes(x=height,fill=voice.part))+
-#   geom_density()+
-#   facet_grid(voice.part~.)
-# gg <- ggplotly(p)
-# gg
+# raw_data <- read.table("f:/Project/SZY/hybridize/RNA/result/hybridize.featureCount.matrix",header = F, sep = "\t", colClasses = "character") # 默认情况下每一列都会是factor，这里不用factor
+# names(raw_data) <- raw_data[1, ] # 不直接读header，防止R改名
+# raw_data <- raw_data[-1, ] #去掉第一行
+# raw_data$gene <- gene_id_trans_table$XB_GENEPAGE_NAME[match(raw_data$gene,gene_id_trans_table$XB_GENE_NAME)]
+# raw_data <- raw_data[!is.na(raw_data$gene),]
+# col_name <- names(raw_data)
+# new_data <- aggregate(x=as.data.frame(lapply(raw_data[,-1], as.numeric)) , by=list("gene"=raw_data$gene), FUN=sum)
+# names(new_data)<-col_name
+# write.table(new_data,row.names = F,quote = F,sep = "\t",file = "f:/Project/SZY/hybridize/RNA/result/hybridize.new.merge_gene.matrix")
+# raw_data <- read.table("f:/Project/SZY/hybridize/RNA/result/hybridize.new.merge_gene.matrix",header = F, sep = "\t", colClasses = "character")
