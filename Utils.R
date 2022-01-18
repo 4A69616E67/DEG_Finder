@@ -1,5 +1,5 @@
 ###数据预处理
-PreProcess <- function(data, group) {
+PreProcess <- function(data, condition) {
   #-------------将featurecount的结果转换成需要的格式-----------
   GeneName <- data[[1]] # 先储存基因名
   GeneLength <- NULL # 储存基因长度（所有不重合的外显子长度之和）
@@ -17,39 +17,39 @@ PreProcess <- function(data, group) {
   # 分组至少有两列，分别是sample和condition
   # 先初始化分组信息
   # 判断是否为空
-  if (!is.null(group)) {
-    if (dim(group)[1] <= 0 || (!"sample" %in% names(group))) {
+  if (!is.null(condition)) {
+    if (dim(condition)[1] <= 0 || (!"sampleid" %in% names(condition))) {
       cat("can not find corrected group content, use file header as sample name\n")
-      group <- data.frame(sample = colnames(data), condition = gsub(x = colnames(data), pattern = "_[^_]*$", replacement = "", perl = T))
+      condition <- data.frame(sample = colnames(data), condition = gsub(x = colnames(data), pattern = "_[^_]*$", replacement = "", perl = T))
     }
-    # 若无condition，则依据sample值设置
-    if (!"condition" %in% names(group)) {
-      cat("set condition depend on sample name\n")
-      group <- data.frame(group, condition = gsub(x = group[["sample"]], pattern = "_[^_]*$", replacement = "", perl = T))
+    # 若无group，则依据sample值设置
+    if (!"group" %in% names(condition)) {
+      cat("set group depend on sample name\n")
+      condition <- data.frame(condition, condition = gsub(x = condition[["sampleid"]], pattern = "_[^_]*$", replacement = "", perl = T))
     }
   } else {
     # 如果group为空则使用输入数据的header作为sample
     cat("Empty group, use file header as sample name\n")
-    group <- data.frame(sample = colnames(data), condition = gsub(x = colnames(data), pattern = "_[^_]*$", replacement = "", perl = T))
+    condition <- data.frame(sample = colnames(data), group = gsub(x = colnames(data), pattern = "_[^_]*$", replacement = "", perl = T))
   }
-  group$condition <- factor(group$condition)
+  condition$group <- factor(condition$group)
   # 判断sample名是否一致
-  if (!all(group[["sample"]] %in% names(data))) {
+  if (!all(condition[["sampleid"]] %in% names(data))) {
     # 不一致，退出
     cat("sample name include unkonow contnet\n")
     quit(status = 1)
   }
-  data <- data[, match(Group$sample, names(data))] # 只保留sample中含有的样本,which返回的时前一个数组的索引值
-  row.names(group) <- as.character(group$sample)
-  if ("name" %in% names(group)) {
+  data <- data[, match(condition$sampleid, names(data))] # 只保留sample中含有的样本,match返回的是前一个数组的值在后一个数组的索引值
+  row.names(condition) <- as.character(condition$sampleid)
+  if ("name" %in% names(condition)) {
     # 如果有name词条，则将样本名改成name
-    names(data) <- as.character(group$name)
-    row.names(group) <- as.character(group$name)
+    names(data) <- as.character(condition$name)
+    row.names(condition) <- as.character(condition$name)
   }
   data <- data[which(rowSums(data) > dim(data)[2]), ] # 去除全为0的行
-  cat("Sample name:\t", as.character(group[["sample"]]), "\n")
-  cat("Group name:\t", as.character(group[["condition"]]), "\n")
-  res <- list(data = data, group = group, gene_length = GeneLength)
+  cat("Sample name:\t", as.character(condition[["sampleid"]]), "\n")
+  cat("Group name:\t", as.character(condition[["group"]]), "\n")
+  res <- list(data = data, condition = condition, gene_length = GeneLength)
   return(res)
 }
 
@@ -67,7 +67,7 @@ CalculateTPM <- function(data, geneLen) {
   cat("remove gene length bias\n")
   TPM_data <- data
   RPK_sum <- list()
-  length_set <- geneLen[row.names(TPM_data), 2]
+  length_set <- as.numeric(geneLen[row.names(TPM_data), 2])
   # 计算TPM
   for (j in names(TPM_data)) {
     TPM_data[[j]] <- TPM_data[[j]] / length_set * 10^3# 除以基因长度
