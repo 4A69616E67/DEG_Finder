@@ -46,7 +46,7 @@ PreProcess <- function(data, condition) {
     names(data) <- as.character(condition$name)
     row.names(condition) <- as.character(condition$name)
   }
-  data <- data[which(rowSums(data) > dim(data)[2]), ] # 去除全为0的行
+  data <- data[which(rowSums(data) > dim(data)[2]), ] # 去除count值较小的行
   cat("Sample name:\t", as.character(condition[["sampleid"]]), "\n")
   cat("Group name:\t", as.character(condition[["group"]]), "\n")
   res <- list(data = data, condition = condition, gene_length = GeneLength)
@@ -98,11 +98,13 @@ plot.go <- function(go_result, ont=c("BP","MF","CC"), ...){
 }
 
 ###KEGG富集
-process.kegg <- function(entrez_id, species, pvalue = 0.05, qvalue = 0.05, ...){
+process.kegg <- function(entrez_id, species, pvalue = 0.05, qvalue = 0.05, title= "",  show_category =20, ...){
   result <- list()
   if (!is.null(entrez_id) && length(entrez_id) > 0) {
-    result$KEGG <- enrichKEGG(gene = entrez_id, organism = species, pvalueCutoff = pvalue, qvalueCutoff = qvalue, ...)
-    result$KEGG.plot <- dotplot(result$KEGG, title = title_name, showCategory = 30)
+    result$term <- enrichKEGG(gene = entrez_id, organism = species, pvalueCutoff = pvalue, qvalueCutoff = qvalue, ...)
+    if (!is.null(result$term ) && dim(result$term )[1] > 0) {
+      result$plot <- barplot(result$term, title = title, showCategory = show_category)
+    }
   }
   return(result)
 }
@@ -138,4 +140,25 @@ show_opt <- function(opt){
   for(name in names(opt)){
     cat(name," : ", opt[[name]], "\n")
   }
+}
+############趋势分析
+trendAnalyse <- function(data, condition, k=10, algo="cm", sed="12580"){
+  library(TCseq)
+  res <- list()
+  if ("timegroup" %in% names(condition)) {
+    group_list <- levels(factor(condition[["timegroup"]]))
+  }else{
+    group_list <- c("1")
+  }
+  for(time_group in group_list){
+    
+  }
+  # tca <- TCseq::TCA(design = condition, genomicFeature = gene_list, counts = input_data)
+  # tca <- TCseq::DBanalysis(tca)
+  # tca <- TCseq::timecourseTable(tca, value = "expression", norm.method = "none", filter = TRUE)
+  set.seed(sed)
+  tca <- TCseq::timeclust(as.matrix(data), algo = algo, k = k, standardize = TRUE)
+  res$tca <- tca
+  res$plot <- timeclustplot(tca, value = "z-score(RPKM)", cols = 4)
+  # a <- as.data.frame(tca@clusterRes@cluster)
 }

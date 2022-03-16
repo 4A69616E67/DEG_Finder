@@ -54,3 +54,5 @@ tca <- TCseq::timecourseTable(tca, value = "expression", norm.method = "rpkm", f
 tca <- TCseq::timeclust(tca, algo = "cm", k = 10, standardize = TRUE)
 p <- timeclustplot(tca, value = "z-score(RPKM)", cols = 4)
 a <- as.data.frame(tca@clusterRes@cluster)
+
+
